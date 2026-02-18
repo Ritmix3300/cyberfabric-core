@@ -9,6 +9,12 @@ release-plz updates this file in the Release PR.
 
 ## [Unreleased]
 
+## [0.1.3](https://github.com/Ritmix3300/cyberfabric-core/compare/cf-single-tenant-tr-plugin-v0.1.2...cf-single-tenant-tr-plugin-v0.1.3) - 2026-02-18
+
+### Other
+
+- updated the following local packages: cf-modkit-security, cf-modkit-odata, cf-modkit-macros, cf-modkit, cf-tenant-resolver-sdk
+
 ## [0.2.12](https://github.com/cyberfabric/cyberfabric-core/compare/types-sdk-v0.2.11...types-sdk-v0.2.12) - 2026-02-18
 
 ### Other
