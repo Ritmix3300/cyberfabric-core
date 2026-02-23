@@ -93,7 +93,7 @@ Complete HTTP REST API specification defining the RESTful endpoints for Chat Eng
 
 **Format**: GTS JSON Schema (custom format)
 
-**GTS ID**: `gts://gts.x.chat_engine.api.webhook_protocol.v1~`
+**GTS ID**: `gts.x.core.events.event.v1~x.chat_engine.api.webhook_protocol.v1~`
 
 Complete Webhook API specification defining HTTP POST calls from Chat Engine to backend services.
 
