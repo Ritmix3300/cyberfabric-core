@@ -1,68 +1,51 @@
-# ADR: Resource Identification and Discovery
+---
+status: proposed
+date: 2026-01-28
+decision-makers: OAGW Team
+---
 
-- **Status**: Proposed
-- **Date**: 2026-01-28
-- **Deciders**: TBD
+# Resource Identification — UUID + Alias + Tags + Tenant Bindings
+
+**ID**: `cpt-cf-oagw-adr-resource-identification`
 
 ## Context and Problem Statement
 
-OAGW needs a resource identification strategy that satisfies multiple competing requirements:
+OAGW needs a resource identification strategy that satisfies multiple competing requirements: universality (auto-generated IDs), observability (request-to-resource tracing in logs), discoverability (tenants finding existing configs), deduplication (matching equivalent upstreams), and human-readable routing (aliases for proxy URLs). When Tenant A creates an upstream for `api.openai.com` and Tenant B wants the same upstream, the system must recognize the shared logical upstream while maintaining separate tenant-specific configurations.
 
-1. **Universality**: System should be a generic tool where IDs are auto-generated (like UUIDs) or deterministically derived
-2. **Observability**: Requests must be traceable in access logs - correlating inbound requests to upstreams/routes
-3. **Discoverability**: Tenants need to find and reuse existing upstream/route configurations
-4. **Deduplication**: When tenant defines an upstream (e.g., `api.openai.com:443`), system should match existing configurations rather than create duplicates
-5. **Human-readable routing**: Support aliases for IP-based or multi-endpoint upstreams
-
-**Example scenario**: Tenant A creates an upstream for `api.openai.com`. Later, Tenant B wants to use the same upstream. The system should:
-
-- Recognize this is the same logical upstream
-- Allow Tenant B to discover and reference it
-- Maintain separate tenant-specific configurations (auth, rate limits)
-- Keep logs traceable to both the shared upstream and tenant-specific usage
-
-**Multi-endpoint scenario**: Root tenant creates upstreams for `10.0.1.1:443` and `10.0.1.2:443` with alias `my-service`. Sub-tenant creates upstream for `10.0.1.3:443` with same
-alias. When subsub-tenant resolves alias `my-service`, system finds 3 upstreams - their configurations must be compatible.
+**Multi-endpoint scenario**: Root tenant creates upstreams for `10.0.1.1:443` and `10.0.1.2:443` with alias `my-service`. Sub-tenant creates upstream for `10.0.1.3:443` with same alias. When subsub-tenant resolves alias `my-service`, system finds 3 upstreams - their configurations must be compatible.
 
 ## Decision Drivers
 
-- Auto-generated or deterministic IDs (no manual naming conflicts)
-- Log correlation between requests and resources
-- Discovery of existing configurations
-- Automatic matching/deduplication of equivalent upstreams
-- Tenant isolation for configurations while sharing base definitions
-- Human-readable proxy URLs via aliases or hostnames
+* Auto-generated or deterministic IDs (no manual naming conflicts)
+* Log correlation between requests and resources
+* Discovery of existing configurations via tags and aliases
+* Automatic matching/deduplication of equivalent upstreams
+* Tenant isolation for configurations while sharing base definitions
+* Human-readable proxy URLs via aliases or hostnames
+
+## Considered Options
+
+* UUID-only identification (no aliases)
+* UUID + Alias + Tags + Tenant Bindings (layered approach)
+* Human-readable slugs as primary IDs
 
 ## Decision Outcome
 
-**Chosen approach: UUID + Alias + Tags + Tenant Bindings**
+Chosen option: "UUID + Alias + Tags + Tenant Bindings", because it separates concerns into three layers — upstream definition (shared, immutable core), tenant binding (per-tenant configuration), and request context (runtime tracing).
 
-Separate concerns into three layers:
+### Layer 1: Upstream Definition
 
-Implementation note:
+System-generated UUID as primary ID. Alias for human-readable routing (defaults to hostname). Flat tags for discovery.
 
-- The layers below describe the **logical model**.
-- The current MVP storage approach can represent the tenant binding by storing one tenant-scoped row per binding (see `ADR: Storage Schema`).
-- Cross-tenant upstream *deduplication* (a shared upstream definition referenced by multiple tenant bindings) is deferred. It can be added later by splitting the shared, immutable core into a separate table (or by introducing a stable `definition_id` that multiple tenant rows can reference).
+### Layer 2: Tenant Binding
 
-**Layer 1: Upstream Definition (shared, immutable core)**
+Links tenant to upstream definition. Holds tenant-specific auth config, rate limits, and plugins. Has its own UUID for log correlation.
 
-- System-generated UUID as primary ID
-- Alias for human-readable routing (defaults to hostname)
-- Flat tags for discovery (e.g., `openai`, `llm`, `completion`)
+### Layer 3: Request Context
 
-**Layer 2: Tenant Binding (per-tenant configuration)**
+Request ID for tracing. References both binding ID and upstream ID in access logs.
 
-- Links tenant to upstream definition
-- Holds tenant-specific: auth config, rate limits, plugins
-- Has its own UUID for log correlation
-
-**Layer 3: Request Context (runtime)**
-
-- Request ID for tracing
-- References both binding ID and upstream ID
-
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    Upstream Definition                       │
 │  id: "01234567-..."  (UUID)                                 │
@@ -82,21 +65,17 @@ Implementation note:
 └──────────────────────────┘    └──────────────────────────┘
 ```
 
-### Upstream Alias
+### Alias Resolution Rules
 
-Alias provides human-readable identifier for proxy URLs.
-
-**Alias Resolution Rules**:
-
-| Scenario                          | Enforced Alias            | Example                                                |
-|-----------------------------------|---------------------------|--------------------------------------------------------|
-| Single host                       | `hostname` (without port) | `api.openai.com:443` → alias: `api.openai.com`         |
-| Multiple hosts with common suffix | Common domain suffix      | `us.vendor.com`, `eu.vendor.com` → alias: `vendor.com` |
-| No common suffix or IP addresses  | Explicit alias required   | `10.0.1.1`, `10.0.1.2` → alias: `my-service`           |
+| Scenario | Default Alias | Example |
+|---|---|---|
+| Single host | hostname (without port) | `api.openai.com:443` → `api.openai.com` |
+| Multiple hosts with common suffix | Common domain suffix | `us.vendor.com`, `eu.vendor.com` → `vendor.com` |
+| IP addresses or no common suffix | Explicit alias required | `10.0.1.1`, `10.0.1.2` → `my-service` |
 
 **Algorithm for Common Suffix Extraction**:
 
-```
+```text
 Given endpoints: ["us.vendor.com", "eu.vendor.com", "ap.vendor.com"]
 
 1. Split each hostname by dots: [["us", "vendor", "com"], ["eu", "vendor", "com"], ["ap", "vendor", "com"]]
@@ -111,11 +90,98 @@ Given endpoints: ["us.vendor.com", "eu.vendor.com", "ap.vendor.com"]
 - Multiple endpoints with common suffix: alias defaults to common suffix (min 2 components)
 - IP-based endpoints or no common suffix: explicit alias is mandatory
 
-**Shadowing**: Alias in child tenant shadows same alias in parent tenant (closest wins)
+**Alias uniqueness rule**:
+
+- Within same tenant: alias must be unique
+- Across tenant hierarchy: child can shadow parent's alias (intentional override)
+
+**Examples**:
+
+**Single hostname (alias auto-generated)**:
+
+```json
+{
+  "server": { "endpoints": [ { "host": "api.openai.com", "port": 443 } ] }
+}
+```
+
+> System sets `alias = "api.openai.com"`
+
+**Multi-region with common suffix (alias auto-generated)**:
+
+```json
+{
+  "server": {
+    "endpoints": [
+      { "host": "us.vendor.com", "port": 443 },
+      { "host": "eu.vendor.com", "port": 443 },
+      { "host": "ap.vendor.com", "port": 443 }
+    ]
+  }
+}
+```
+
+> System sets `alias = "vendor.com"` (common suffix)
+
+**IP-based endpoints (alias required)**:
+
+```json
+{
+  "server": {
+    "endpoints": [
+      { "host": "10.0.1.1", "port": 443 },
+      { "host": "10.0.1.2", "port": 443 }
+    ]
+  },
+  "alias": "my-internal-service"
+}
+```
+
+> Explicit alias mandatory for IP addresses
+
+**Heterogeneous hosts (alias required)**:
+
+```json
+{
+  "server": {
+    "endpoints": [
+      { "host": "service-a.com", "port": 443 },
+      { "host": "service-b.net", "port": 443 }
+    ]
+  },
+  "alias": "my-service-pool"
+}
+```
+
+> No common suffix, explicit alias required
+
+**Multi-endpoint with shared alias** (load balancing pool):
+
+```text
+Root Tenant:
+┌────────────────────────────┐  ┌────────────────────────────┐
+│  Upstream A                │  │  Upstream B                │
+│  alias: "my-service"       │  │  alias: "my-service"       │
+│  server: 10.0.1.1:443      │  │  server: 10.0.1.2:443      │
+│  protocol: https           │  │  protocol: https           │
+└────────────────────────────┘  └────────────────────────────┘
+
+Sub Tenant:
+┌────────────────────────────┐
+│  Upstream C                │
+│  alias: "my-service"       │
+│  server: 10.0.1.3:443      │
+│  protocol: https           │
+└────────────────────────────┘
+```
+
+### Alias Shadowing
+
+When resolving an alias, OAGW searches the tenant hierarchy from descendant to root. The closest match wins (descendant shadows ancestor). Enforced limits from ancestors still apply across shadowing.
 
 **Alias Resolution Order** (closest to tenant wins):
 
-```
+```text
 Request from: subsub-tenant
 Alias: "api.openai.com"
 
@@ -127,7 +193,7 @@ Resolution order:
 
 **Shadowing example**:
 
-```
+```text
 Root Tenant:
 ┌────────────────────────────────────────┐
 │  Upstream A                            │
@@ -166,98 +232,13 @@ When sub-tenant requests `/proxy/api.openai.com/...`:
 }
 ```
 
-**Alias uniqueness rule**:
-
-- Within same tenant: alias must be unique
-- Across tenant hierarchy: child can shadow parent's alias (intentional override)
-
-**Examples**:
-
-**Single hostname (alias auto-generated)**:
-
-```json
-{
-  "server": { "endpoints": [ { "host": "api.openai.com", "port": 443 } ] }
-}
-```
-
-→ System sets `alias = "api.openai.com"`
-
-**Multi-region with common suffix (alias auto-generated)**:
-
-```json
-{
-  "server": {
-    "endpoints": [
-      { "host": "us.vendor.com", "port": 443 },
-      { "host": "eu.vendor.com", "port": 443 },
-      { "host": "ap.vendor.com", "port": 443 }
-    ]
-  }
-}
-```
-
-→ System sets `alias = "vendor.com"` (common suffix)
-
-**IP-based endpoints (alias required)**:
-
-```json
-{
-  "server": {
-    "endpoints": [
-      { "host": "10.0.1.1", "port": 443 },
-      { "host": "10.0.1.2", "port": 443 }
-    ]
-  },
-  "alias": "my-internal-service"
-}
-```
-
-→ Explicit alias mandatory for IP addresses
-
-**Heterogeneous hosts (alias required)**:
-
-```json
-{
-  "server": {
-    "endpoints": [
-      { "host": "service-a.com", "port": 443 },
-      { "host": "service-b.net", "port": 443 }
-    ]
-  },
-  "alias": "my-service-pool"
-}
-```
-
-→ No common suffix, explicit alias required
-
-**Multi-endpoint with shared alias** (load balancing pool):
-
-```
-Root Tenant:
-┌────────────────────────────┐  ┌────────────────────────────┐
-│  Upstream A                │  │  Upstream B                │
-│  alias: "my-service"       │  │  alias: "my-service"       │
-│  server: 10.0.1.1:443      │  │  server: 10.0.1.2:443      │
-│  protocol: https           │  │  protocol: https           │
-└────────────────────────────┘  └────────────────────────────┘
-
-Sub Tenant:
-┌────────────────────────────┐
-│  Upstream C                │
-│  alias: "my-service"       │
-│  server: 10.0.1.3:443      │
-│  protocol: https           │
-└────────────────────────────┘
-```
-
 ### Alias Compatibility Validation
 
-When resolving alias through tenant hierarchy (subsub→sub→root), the closest match wins (shadowing). However, **enforced limits from ancestors still apply**.
+Upstreams pooled under the same alias **within the same tenant** must have identical `protocol`, `scheme`, and `port`. Incompatible configurations are rejected with `ALIAS_INCOMPATIBLE` error. This rule does **not** apply across tenant hierarchy boundaries: when a child tenant shadows a parent's alias (as in the shadowing example above, where the child uses port 8443 while the parent uses 443), the child's upstream fully replaces the parent's during resolution — no pooling occurs, so no compatibility check is needed.
 
 **Limit enforcement across shadowing**:
 
-```
+```text
 Root Tenant:
 ┌────────────────────────────────────────┐
 │  Upstream A                            │
@@ -282,7 +263,7 @@ Sub Tenant:
 
 **When shadowing doesn't inherit enforcement** - different alias:
 
-```
+```text
 Root: alias "openai-shared", rate_limit: { sharing: "enforce", rate: 10000 }
 Sub:  alias "openai-private" (different alias - no enforcement inheritance)
 ```
@@ -291,7 +272,7 @@ Sub:  alias "openai-private" (different alias - no enforcement inheritance)
 
 When multiple upstreams share the same alias **within same tenant or explicitly configured for pooling**, they form a load-balance pool:
 
-```
+```text
 Root Tenant:
 ┌────────────────────────────┐  ┌────────────────────────────┐
 │  Upstream A                │  │  Upstream B                │
@@ -311,7 +292,7 @@ Root Tenant:
 
 **Resolution flow**:
 
-```
+```text
 Request: POST /api/oagw/v1/proxy/api.openai.com/v1/chat/completions
 Tenant: sub-tenant
 
@@ -340,6 +321,15 @@ Tenant: sub-tenant
   }
 }
 ```
+
+### Configuration Sharing Modes
+
+Each binding field specifies sharing mode (`private`/`inherit`/`enforce`):
+
+- **Auth**: Each tenant specifies own credentials via `cred_store` secret references
+- **Rate limits**: Merged with `min(parent, child)` — stricter always wins
+- **Plugins**: Concatenated (parent + child); enforced plugins cannot be removed
+- **Tags**: Union (add-only); descendants can add but not remove inherited tags
 
 ### Schema Changes
 
@@ -450,13 +440,13 @@ GET /api/oagw/v1/upstreams?host=api.openai.com
 
 ### Proxy URL
 
-```
+```text
 POST /api/oagw/v1/proxy/{alias}/{path_suffix}
 ```
 
 **Examples**:
 
-```
+```text
 # Hostname as alias (default)
 POST /api/oagw/v1/proxy/api.openai.com/v1/chat/completions
 
@@ -469,7 +459,7 @@ POST /api/oagw/v1/proxy/my-service/health
 
 **Resolution flow**:
 
-```
+```text
 Inbound: POST /api/oagw/v1/proxy/my-service/api/v1/users
                                  └───┬────┘└─────┬─────┘
                                   alias      path_suffix
@@ -486,7 +476,7 @@ Inbound: POST /api/oagw/v1/proxy/my-service/api/v1/users
 
 **Access log**:
 
-```
+```text
 timestamp=2026-01-28T17:30:00Z
 request_id=req-uuid
 tenant_id=tenant-a
@@ -501,7 +491,48 @@ status=200
 latency_ms=234
 ```
 
-## Links
+### Consequences
+
+* Good, because auto-generated UUIDs prevent naming conflicts
+* Good, because aliases provide human-readable proxy URLs
+* Good, because tags enable discovery without requiring knowledge of UUIDs
+* Good, because tenant bindings isolate per-tenant configuration
+* Good, because access logs include both upstream ID and binding ID for correlation
+* Bad, because cross-tenant upstream deduplication is deferred (MVP stores one row per tenant binding)
+* Neutral, because alias uniqueness is per-tenant (child can shadow parent intentionally)
+
+### Confirmation
+
+Integration tests verify: alias auto-generation from hostname, explicit alias required for IPs, alias shadowing across tenant hierarchy, enforced limit inheritance across shadowing, alias compatibility validation for pooled upstreams.
+
+## Pros and Cons of the Options
+
+### UUID-only identification
+
+* Good, because simplest — no alias logic
+* Bad, because proxy URLs require UUIDs (not human-readable)
+* Bad, because no discovery mechanism
+
+### UUID + Alias + Tags + Tenant Bindings
+
+* Good, because human-readable proxy URLs
+* Good, because tag-based discovery
+* Good, because tenant isolation with sharing
+* Bad, because alias resolution logic adds complexity
+
+### Human-readable slugs as primary IDs
+
+* Good, because naturally readable
+* Bad, because naming conflicts across tenants
+* Bad, because rename requires cascading updates
+
+## More Information
+
+Implementation note: the current MVP storage approach represents tenant bindings as one tenant-scoped row per binding. Cross-tenant upstream deduplication (shared definition referenced by multiple bindings) is deferred and can be added by splitting the shared core into a separate table.
+
+Access log fields: `request_id`, `tenant_id`, `binding_id`, `upstream_id`, `upstream_alias`, `upstream_host`, `route_id`, `method`, `path`, `status`, `latency_ms`.
+
+### Links
 
 - [OAGW Design Document](../DESIGN.md)
 - [Kubernetes Labels and Selectors](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/)
@@ -514,7 +545,7 @@ latency_ms=234
 
 **Scenario**: Partner tenant creates upstream for `api.openai.com` with rate limits and shared auth. Customer tenant wants to use the same upstream with minimal configuration.
 
-```
+```text
 Partner Tenant (parent):
 ┌─────────────────────────────────────────────────────────────┐
 │  Upstream: api.openai.com                                   │
@@ -576,7 +607,7 @@ This means:
 
 **Example**: Partner shares OpenAI key with customers
 
-```
+```text
 Partner Tenant:
   - Creates secret "openai-api-key" in cred_store
   - Sets sharing policy: { visibility: "inherit" }
@@ -831,3 +862,16 @@ func mergeRateLimit(parent, child *RateLimitConfig, isOwn bool) *RateLimitConfig
     return child
 }
 ```
+
+## Traceability
+
+- **PRD**: [PRD.md](../PRD.md)
+- **DESIGN**: [DESIGN.md](../DESIGN.md)
+
+This decision directly addresses the following requirements or design elements:
+
+* `cpt-cf-oagw-fr-alias-resolution` — Alias resolution rules, shadowing, and compatibility validation
+* `cpt-cf-oagw-fr-upstream-mgmt` — UUID-based upstream identification with auto-generated aliases
+* `cpt-cf-oagw-fr-hierarchical-config` — Tenant binding sharing modes and merge strategies
+* `cpt-cf-oagw-nfr-observability` — Access log correlation via binding ID and upstream ID
+* `cpt-cf-oagw-nfr-credential-isolation` — Auth config via `cred_store` secret references
