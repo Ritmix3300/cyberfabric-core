@@ -66,7 +66,7 @@ LL |     let _s = "gts.x.core.events.type.*";
    = help: Use concrete type names
 
 error: GTS wildcard string in `const`/`static` `BAD_PATTERN` must have a name ending with `_WILDCARD` (DE0901)
-  --> $DIR/invalid_cases.rs:65:1
+  --> $DIR/invalid_cases.rs:68:1
    |
 LL | const BAD_PATTERN: &str = "gts.x.core.srr.resource.v1~*";
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -75,3 +75,4 @@ LL | const BAD_PATTERN: &str = "gts.x.core.srr.resource.v1~*";
    = help: rename to `BAD_PATTERN_WILDCARD` or use a non-wildcard value
 
 error: aborting due to 9 previous errors
+
