@@ -52,6 +52,8 @@ This design satisfies the requirements for centralized outbound traffic manageme
 | Multi-tenant hierarchy | `cpt-cf-oagw-fr-hierarchical-config` | Configuration sharing/inheritance across tenant tree |
 | Plugin extensibility | `cpt-cf-oagw-fr-plugin-system` | Three plugin types (Auth/Guard/Transform) with trait-based isolation |
 | Low-latency proxy path | `cpt-cf-oagw-nfr-low-latency` | In-memory rate limiters |
+| Configuration layering | `cpt-cf-oagw-fr-config-layering` | Upstream < Route < Tenant merge priority |
+| Alias resolution | `cpt-cf-oagw-fr-alias-resolution` | Path-based routing with alias shadowing |
 | Credential isolation | `cpt-cf-oagw-nfr-credential-isolation` | Auth via `cred_store` references, no direct secret storage |
 | ModKit integration | CyberFabric platform | Single-executable deployment, trait-based DI, secure ORM |
 

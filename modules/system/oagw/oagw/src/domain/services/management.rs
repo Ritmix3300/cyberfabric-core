@@ -190,7 +190,10 @@ impl ControlPlaneService for ControlPlaneServiceImpl {
 
         // Validate ancestor bind constraints if the resulting alias matches
         // an ancestor upstream.
-        let has_overrides = req.auth.is_some() || req.rate_limit.is_some() || req.plugins.is_some() || req.cors.is_some();
+        let has_overrides = req.auth.is_some()
+            || req.rate_limit.is_some()
+            || req.plugins.is_some()
+            || req.cors.is_some();
 
         if has_overrides || endpoints_changed || req.alias.is_some() {
             let tenant_chain = self.build_tenant_chain(ctx).await?;
@@ -1701,6 +1704,7 @@ mod tests {
             headers: u.headers.clone(),
             plugins: u.plugins.clone(),
             rate_limit: u.rate_limit.clone(),
+            cors: u.cors.clone(),
             tags: u.tags.clone(),
             enabled: u.enabled,
         }
@@ -1712,6 +1716,7 @@ mod tests {
             match_rules: r.match_rules.clone(),
             plugins: r.plugins.clone(),
             rate_limit: r.rate_limit.clone(),
+            cors: r.cors.clone(),
             tags: r.tags.clone(),
             priority: r.priority,
             enabled: r.enabled,
@@ -4629,6 +4634,7 @@ mod tests {
             },
             plugins: None,
             rate_limit: None,
+            cors: None,
             tags: vec![],
             priority: 0,
             enabled: true,
@@ -4771,6 +4777,7 @@ mod tests {
             },
             plugins: None,
             rate_limit: None,
+            cors: None,
             tags: vec![],
             priority: 0,
             enabled: true,
@@ -4791,6 +4798,7 @@ mod tests {
             },
             plugins: None,
             rate_limit: None,
+            cors: None,
             tags: vec![],
             priority: 0,
             enabled: true,

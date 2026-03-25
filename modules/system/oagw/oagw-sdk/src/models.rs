@@ -498,6 +498,7 @@ impl UpdateUpstreamRequest {
             headers: None,
             plugins: None,
             rate_limit: None,
+            cors: None,
             tags: vec![],
             enabled: true,
         }
@@ -725,6 +726,7 @@ impl UpdateRouteRequest {
             match_rules,
             plugins: None,
             rate_limit: None,
+            cors: None,
             tags: vec![],
             priority: 0,
             enabled: true,
