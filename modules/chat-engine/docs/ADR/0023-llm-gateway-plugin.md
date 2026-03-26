@@ -1,10 +1,5 @@
 Created:  2026-03-06 by Constructor Tech
 Updated:  2026-03-09 by Constructor Tech
----
-status: accepted
-date: 2026-03-06
----
-
 # ADR-0023: LLM Gateway Plugin
 
 
@@ -37,6 +32,12 @@ date: 2026-03-06
 - [Traceability](#traceability)
 
 <!-- /toc -->
+
+**Date**: 2026-03-06
+
+**Status**: accepted
+
+**Review**: Revisit if LLM provider APIs require protocol-level changes
 
 **ID**: `cpt-cf-chat-engine-adr-llm-gateway-plugin`
 

@@ -23,6 +23,8 @@ Updated:  2026-03-06 by Constructor Tech
 
 **Status**: accepted
 
+**Review**: Revisit if real-time session switching is needed
+
 **ID**: `cpt-cf-chat-engine-adr-session-switching`
 
 ## Context and Problem Statement
